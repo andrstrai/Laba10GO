@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -81,23 +82,88 @@ func SequentialSearch(slice []int) SearchResult {
 	}
 }
 
-// Функция для параллельного поиска простых чисел в слайсе
-func ParallelSearch(slice []int, numWorkers int) SearchResult {
-	// нужна функция для параллельного поиска
-	totalPrimes := 0
-	processedCount := 0
-	return SearchResult{
-		SimpleCount:    totalPrimes,
-		TimeSpent:      1,
-		ProcessedCount: processedCount,
+// Реализация паттерна Worker Pool - функция обрабатывает пачки чисел и проверяет их простоту
+func workerForParallel(nums <-chan []int, res *SearchResult, wg *sync.WaitGroup, mu *sync.Mutex) {
+	defer wg.Done()
+	for {
+		select {
+		case chunk, open := <-nums:
+			if !open {
+				return
+			}
+
+			// Локальные счетчики воркера
+			localSimple := 0
+			localProcessed := 0
+
+			// Считаем пакет целиком
+			for _, num := range chunk {
+				if isPrime(num) {
+					localSimple++
+				}
+				localProcessed++
+			}
+
+			// Блокируем мьютекс ОДИН раз на весь пакет (чанк), а не на каждое число!
+			mu.Lock()
+			res.SimpleCount += localSimple
+			res.ProcessedCount += localProcessed
+			mu.Unlock()
+		}
 	}
+
+}
+
+// Функция для параллельного поиска простых чисел в слайсе
+func ParallelSearch(slice []int) SearchResult {
+	result := SearchResult{
+		SimpleCount:    0,
+		TimeSpent:      0,
+		ProcessedCount: 0,
+	}
+
+	var waitParralel sync.WaitGroup
+	var mutexForParallel sync.Mutex
+	numsForCheck := make(chan []int)
+	cntWorker := runtime.NumCPU()
+	chunkSize := len(slice) / (cntWorker * 4)
+	if chunkSize < 1 {
+		chunkSize = 1
+	} else if chunkSize > 1000 {
+		chunkSize = 1000
+	}
+
+	start := time.Now()
+	for i := 0; i < cntWorker; i++ {
+		waitParralel.Add(1)
+		go workerForParallel(numsForCheck, &result, &waitParralel, &mutexForParallel)
+	}
+
+	go func() {
+		for i := 0; i < len(slice); i += chunkSize {
+			end := i + chunkSize
+			if end > len(slice) {
+				end = len(slice)
+			}
+
+			select {
+			case numsForCheck <- slice[i:end]: // Отправляем кусок слайса
+			}
+		}
+		close(numsForCheck)
+	}()
+
+	waitParralel.Wait()
+	duration := time.Since(start)
+	result.TimeSpent = duration.Nanoseconds()
+	return result
 }
 
 // Функция заполнения среза n случайными данными
 func RandomFill(n int) []int {
 	slice := []int{}
 	for i := 0; i < n; i++ {
-		c := rand.IntN(10000)
+		c := rand.IntN(1000000)
 		if c == 0 {
 			slice = append(slice, 1)
 		} else {
@@ -105,6 +171,17 @@ func RandomFill(n int) []int {
 		}
 	}
 	return slice
+}
+
+func PrintSlice(slice []int) {
+	cols := int(math.Ceil(math.Sqrt(float64(len(slice)))))
+	fmt.Println("Слайс чисел: ")
+	for i := 0; i < len(slice); i++ {
+		if i%cols == 0 && i != 0 {
+			fmt.Println("")
+		}
+		fmt.Printf("%6d ", slice[i])
+	}
 }
 
 // основная функция
@@ -119,8 +196,9 @@ func main() {
 		clear_screen()
 
 		fmt.Println("Меню команд:")
-		fmt.Println("1 - Создать и вывести слайс чисел")
+		fmt.Println("1 - Создать слайс чисел")
 		fmt.Println("2 - Начать поиск простых чисел в слайсе")
+		fmt.Println("3 - Вывести слайс чисел")
 		fmt.Println("0 - Завершить работу")
 
 		a, err := readInt(reader, "Выберите пункт из меню управления:")
@@ -139,23 +217,19 @@ func main() {
 				continue
 			}
 			Slice = RandomFill(n)
+			fmt.Println("Слайс создан!")
 			// Вычисляем количество столбцов для квадратной матрицы
-			cols := int(math.Ceil(math.Sqrt(float64(n))))
-			fmt.Println("Слайс чисел: ")
-			for i := 0; i < len(Slice); i++ {
-				if i%cols == 0 && i != 0 {
-					fmt.Println("")
-				}
-				fmt.Printf("%6d ", Slice[i])
-			}
+
 		case 2:
 			fmt.Println("Поиск простых чисел в слайсе:")
 
-			result := SequentialSearch(Slice)
-			fmt.Printf("Результат последовательного поиска: TotalSimple=%d, Time=%d нс, Processed=%d\n", result.SimpleCount, result.TimeSpent, result.ProcessedCount)
+			resultSeq := SequentialSearch(Slice)
+			fmt.Printf("Результат последовательного поиска: TotalSimple = %d, Time = %d нс, Processed = %d\n", resultSeq.SimpleCount, resultSeq.TimeSpent, resultSeq.ProcessedCount)
 
-			result1 := ParallelSearch(Slice, runtime.NumCPU())
-			fmt.Printf("Результат параллельного поиска: TotalSimple=%d, Time=%d нс, Processed=%d\n", result1.SimpleCount, result1.TimeSpent, result1.ProcessedCount)
+			resultPar := ParallelSearch(Slice)
+			fmt.Printf("    Результат параллельного поиска: TotalSimple = %d, Time = %d нс, Processed = %d\n", resultPar.SimpleCount, resultPar.TimeSpent, resultPar.ProcessedCount)
+		case 3:
+			PrintSlice(Slice)
 		default:
 			fmt.Println("Нет такого пункта меню!")
 		}
