@@ -47,6 +47,8 @@ func readInt(reader *bufio.Reader, prompt string) (int, error) {
 	return n, nil
 }
 
+// Предлагаю не использовать, так как очень быстро происходит поиск и результат выходит менее наглядный
+/*
 func isPrime(n int) bool {
 	if n <= 1 {
 		return false
@@ -64,13 +66,34 @@ func isPrime(n int) bool {
 	}
 	return true
 }
+*/
+
+func isPrimeStupid(n int) bool {
+	if n <= 1 {
+		return false
+	}
+	if n <= 3 {
+		return true
+	}
+	for i := 2; i < n; i++ {
+		if n%i == 0 {
+			return false
+		}
+	}
+	return true
+}
 
 // Функция для последовательного поиска простых чисел в слайсе
 func SequentialSearch(slice []int) SearchResult {
 	start := time.Now()
 	simpleCount := 0
 	for i := 0; i < len(slice); i++ {
+		/* Заменил на долгую проверку для увеличения времени работы
 		if isPrime(slice[i]) {
+			simpleCount++
+		}
+		*/
+		if isPrimeStupid(slice[i]) {
 			simpleCount++
 		}
 	}
@@ -98,7 +121,12 @@ func workerForParallel(nums <-chan []int, res *SearchResult, wg *sync.WaitGroup,
 
 			// Считаем пакет целиком
 			for _, num := range chunk {
+				/* Заменил на долгую проверку для увеличения времени работы
 				if isPrime(num) {
+					localSimple++
+				}
+				*/
+				if isPrimeStupid(num) {
 					localSimple++
 				}
 				localProcessed++
@@ -175,7 +203,7 @@ func RandomFill(n int) []int {
 
 func PrintSlice(slice []int) {
 	cols := int(math.Ceil(math.Sqrt(float64(len(slice)))))
-	fmt.Println("Слайс чисел: ")
+	fmt.Println(" Первые 100 чисел слайса: ")
 	for i := 0; i < len(slice); i++ {
 		if i%cols == 0 && i != 0 {
 			fmt.Println("")
@@ -186,7 +214,7 @@ func PrintSlice(slice []int) {
 
 // основная функция
 func main() {
-	Slice := RandomFill(10)
+	Slice := RandomFill(1000)
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Println("\nДля продолжения нажмите Enter...")
@@ -198,7 +226,7 @@ func main() {
 		fmt.Println("Меню команд:")
 		fmt.Println("1 - Создать слайс чисел")
 		fmt.Println("2 - Начать поиск простых чисел в слайсе")
-		fmt.Println("3 - Вывести слайс чисел")
+		fmt.Println("3 - Вывести первые числа слайса")
 		fmt.Println("0 - Завершить работу")
 
 		a, err := readInt(reader, "Выберите пункт из меню управления:")
@@ -210,10 +238,10 @@ func main() {
 		case 0:
 			return
 		case 1:
-			fmt.Println("Сколько элементов добавить в слайс?(от 2 до 100000)")
+			fmt.Println("Сколько элементов добавить в слайс?(от 1000 до 100000)")
 			n, err := readInt(reader, "Введите количество элементов: ")
-			if err != nil || n < 2 || n > 100000 {
-				fmt.Println("Некорректный ввод. Пожалуйста, введите число от 2 до 100000.")
+			if err != nil || n < 1000 || n > 100000 {
+				fmt.Println("Некорректный ввод. Пожалуйста, введите число от 1000 до 100000.")
 				continue
 			}
 			Slice = RandomFill(n)
@@ -223,13 +251,16 @@ func main() {
 		case 2:
 			fmt.Println("Поиск простых чисел в слайсе:")
 
+			fmt.Println("Поиск последовательным способом в процессе...")
 			resultSeq := SequentialSearch(Slice)
-			fmt.Printf("Результат последовательного поиска: TotalSimple = %d, Time = %d нс, Processed = %d\n", resultSeq.SimpleCount, resultSeq.TimeSpent, resultSeq.ProcessedCount)
 
+			fmt.Println("Поиск параллельным способом в процессе...")
 			resultPar := ParallelSearch(Slice)
-			fmt.Printf("    Результат параллельного поиска: TotalSimple = %d, Time = %d нс, Processed = %d\n", resultPar.SimpleCount, resultPar.TimeSpent, resultPar.ProcessedCount)
+
+			fmt.Printf("\nРезультат последовательного поиска: Кол-во простых = %d, Время поиска = %d нс, Кол-во обработанных чисел = %d\n", resultSeq.SimpleCount, resultSeq.TimeSpent, resultSeq.ProcessedCount)
+			fmt.Printf("    Результат параллельного поиска: Кол-во простых = %d, Время поиска = %d нс, Кол-во обработанных чисел = %d\n", resultPar.SimpleCount, resultPar.TimeSpent, resultPar.ProcessedCount)
 		case 3:
-			PrintSlice(Slice)
+			PrintSlice(Slice[:100])
 		default:
 			fmt.Println("Нет такого пункта меню!")
 		}
